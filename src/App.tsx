@@ -5,6 +5,7 @@ import { AMENITY_CATEGORIES, DEFAULT_FILTERS, type Amenity, type Bounds, type Pr
 import { AMSTERDAM_FALLBACK_AMENITIES } from './fallbackData';
 import { AMSTERDAM_BOUNDS, AMSTERDAM_CENTER, fetchAmenities, geocodePlace } from './osm';
 import { scoreGrid } from './scoring';
+import { simplifyAmenitiesForDisplay } from './simplify';
 
 const GRID_STEPS = 30;
 
@@ -44,6 +45,7 @@ export default function App() {
   const [draggedId, setDraggedId] = useState<string | null>(null);
 
   const cells = useMemo(() => scoreGrid(analysisBounds, filters, amenities, GRID_STEPS), [analysisBounds, filters, amenities]);
+  const displayAmenities = useMemo(() => simplifyAmenitiesForDisplay(amenities, viewportBounds), [amenities, viewportBounds]);
   const topCells = cells.slice(0, 5);
 
   const loadAmenities = useCallback(async (bounds: Bounds, nextFilters = filters) => {
@@ -59,7 +61,7 @@ export default function App() {
     try {
       const data = await fetchAmenities(bounds, categoryIds, abort.signal);
       setAmenities(data);
-      setStatus(`Loaded ${data.length.toLocaleString()} amenities across ${categoryIds.length} categories. Heatmap recomputed locally.`);
+      setStatus(`Loaded ${data.length.toLocaleString()} amenities across ${categoryIds.length} categories. Scoring uses all data; map markers are simplified for speed.`);
     } catch (error) {
       if (bounds.south < 52.43 && bounds.north > 52.27 && bounds.west < 5.08 && bounds.east > 4.72) {
         const fallback = AMSTERDAM_FALLBACK_AMENITIES.filter((amenity) => categoryIds.includes(amenity.categoryId));
@@ -78,7 +80,7 @@ export default function App() {
     void fetchAmenities(AMSTERDAM_BOUNDS, activeCategoryIds(DEFAULT_FILTERS))
       .then((data) => {
         setAmenities(data);
-        setStatus(`Loaded ${data.length.toLocaleString()} Amsterdam amenities. Heatmap recomputed locally.`);
+        setStatus(`Loaded ${data.length.toLocaleString()} Amsterdam amenities. Scoring uses all data; map markers are simplified for speed.`);
       })
       .catch((error) => {
         setAmenities(AMSTERDAM_FALLBACK_AMENITIES);
@@ -165,6 +167,10 @@ export default function App() {
         </div>
 
         <section className="status" aria-live="polite">{isLoading ? <span className="spinner" /> : null}{status}</section>
+        <section className="data-summary" aria-label="Loaded data summary">
+          <strong>{amenities.length.toLocaleString()}</strong> amenities loaded for scoring · <strong>{displayAmenities.visible.length.toLocaleString()}</strong> shown as markers
+          {displayAmenities.hiddenCount > 0 ? ` · ${displayAmenities.hiddenCount.toLocaleString()} hidden from marker layer` : ''}
+        </section>
 
         <section>
           <h2>Preference filters</h2>
@@ -226,7 +232,7 @@ export default function App() {
       </aside>
 
       <section className="map-wrap">
-        <MapCanvas center={center} bounds={analysisBounds} amenities={amenities} cells={cells} onViewportChange={setViewportBounds} />
+        <MapCanvas center={center} bounds={analysisBounds} amenities={displayAmenities.visible} cells={cells} onViewportChange={setViewportBounds} />
         <div className="legend">
           <span><i className="bad" /> low fit</span>
           <span><i className="ok" /> mixed</span>

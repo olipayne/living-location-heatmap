@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Amenity, PreferenceFilter } from './domain';
 import { buildOverpassQuery, parseOverpassAmenities } from './osm';
-import { contributionForDistance, distanceMeters, makeGrid, scoreGrid, scorePoint, scoreToColor } from './scoring';
+import { contributionForDistance, distanceMeters, distanceToAmenityMeters, distanceToBoundsMeters, makeGrid, scoreGrid, scorePoint, scoreToColor } from './scoring';
 
 const parkFilter: PreferenceFilter = { id: 'park', categoryId: 'park', enabled: true, mode: 'near', radiusMeters: 500, weight: 5 };
 const quietFilter: PreferenceFilter = { id: 'quiet', categoryId: 'quiet', enabled: true, mode: 'away', radiusMeters: 200, weight: 5 };
@@ -32,6 +32,14 @@ describe('scoring', () => {
     expect(result.evidence.quiet.contribution).toBeLessThan(10);
   });
 
+  it('uses amenity bounds so parks count by area instead of only centre point', () => {
+    const bounds = { south: 52.35, west: 4.86, north: 52.36, east: 4.88 };
+    const boundedPark: Amenity = { id: 'park-area', categoryId: 'park', name: 'Park Area', lat: 52.355, lon: 4.87, bounds, tags: {} };
+    expect(distanceToBoundsMeters({ lat: 52.355, lon: 4.865 }, bounds)).toBe(0);
+    expect(distanceToAmenityMeters({ lat: 52.355, lon: 4.865 }, boundedPark)).toBe(0);
+    expect(distanceToBoundsMeters({ lat: 52.37, lon: 4.865 }, bounds)).toBeGreaterThan(1000);
+  });
+
   it('creates sorted heatmap cells', () => {
     const cells = scoreGrid({ south: 52.35, west: 4.86, north: 52.37, east: 4.89 }, [parkFilter], amenities, 4);
     expect(cells).toHaveLength(16);
@@ -52,6 +60,7 @@ describe('osm parsing', () => {
     expect(query).toContain('node["leisure"');
     expect(query).toContain('way["shop"');
     expect(query).toContain('(1,2,3,4)');
+    expect(query).toContain('out tags center bb;');
   });
 
   it('does not split regex alternation pipes when building Overpass queries', () => {
@@ -64,9 +73,10 @@ describe('osm parsing', () => {
   it('normalises Overpass nodes and way centres into amenities', () => {
     const parsed = parseOverpassAmenities([
       { id: 1, type: 'node', lat: 52, lon: 4, tags: { leisure: 'park', name: 'Tiny Park' } },
-      { id: 2, type: 'way', center: { lat: 52.1, lon: 4.1 }, tags: { shop: 'supermarket', name: 'Grocery' } },
+      { id: 2, type: 'way', center: { lat: 52.1, lon: 4.1 }, bounds: { minlat: 52.09, minlon: 4.09, maxlat: 52.11, maxlon: 4.11 }, tags: { shop: 'supermarket', name: 'Grocery' } },
       { id: 3, type: 'node', lat: 52.2, lon: 4.2, tags: { amenity: 'bench' } },
     ], ['park', 'supermarket']);
     expect(parsed.map((item) => item.name)).toEqual(['Tiny Park', 'Grocery']);
+    expect(parsed[1].bounds).toEqual({ south: 52.09, west: 4.09, north: 52.11, east: 4.11 });
   });
 });

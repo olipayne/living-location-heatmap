@@ -95,7 +95,7 @@ export function MapCanvas({ center, bounds, amenities, cells, onViewportChange }
     const layer = markerLayerRef.current;
     if (!layer) return;
     layer.clearLayers();
-    amenities.slice(0, 900).forEach((amenity) => {
+    amenities.forEach((amenity) => {
       const category = categoryById.get(amenity.categoryId);
       const marker = L.circleMarker([amenity.lat, amenity.lon], {
         radius: 4,

@@ -24,6 +24,8 @@ export type Amenity = {
   name: string;
   lat: number;
   lon: number;
+  /** Bounding box for area-like OSM ways/relations. Lets parks count by area, not just centre point. */
+  bounds?: Bounds;
   tags: Record<string, string>;
 };
 

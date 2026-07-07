@@ -2,6 +2,8 @@ import type { Amenity, Bounds, LatLon, PreferenceFilter, ScoredCell } from './do
 
 const EARTH_RADIUS_M = 6_371_000;
 
+export type AmenityIndex = Map<string, Amenity[]>;
+
 export function distanceMeters(a: LatLon, b: LatLon): number {
   const phi1 = (a.lat * Math.PI) / 180;
   const phi2 = (b.lat * Math.PI) / 180;
@@ -11,14 +13,43 @@ export function distanceMeters(a: LatLon, b: LatLon): number {
   return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(s));
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+export function distanceToBoundsMeters(point: LatLon, bounds: Bounds): number {
+  if (point.lat >= bounds.south && point.lat <= bounds.north && point.lon >= bounds.west && point.lon <= bounds.east) {
+    return 0;
+  }
+  return distanceMeters(point, {
+    lat: clamp(point.lat, bounds.south, bounds.north),
+    lon: clamp(point.lon, bounds.west, bounds.east),
+  });
+}
+
+export function distanceToAmenityMeters(point: LatLon, amenity: Amenity): number {
+  return amenity.bounds ? distanceToBoundsMeters(point, amenity.bounds) : distanceMeters(point, { lat: amenity.lat, lon: amenity.lon });
+}
+
+export function buildAmenityIndex(amenities: Amenity[]): AmenityIndex {
+  const index: AmenityIndex = new Map();
+  for (const amenity of amenities) {
+    const bucket = index.get(amenity.categoryId);
+    if (bucket) bucket.push(amenity);
+    else index.set(amenity.categoryId, [amenity]);
+  }
+  return index;
+}
+
 export function nearestAmenity(point: LatLon, amenities: Amenity[]): { distance: number; amenity?: Amenity } {
   let best = Number.POSITIVE_INFINITY;
   let bestAmenity: Amenity | undefined;
   for (const amenity of amenities) {
-    const d = distanceMeters(point, { lat: amenity.lat, lon: amenity.lon });
+    const d = distanceToAmenityMeters(point, amenity);
     if (d < best) {
       best = d;
       bestAmenity = amenity;
+      if (best === 0) break;
     }
   }
   return { distance: best, amenity: bestAmenity };
@@ -35,14 +66,14 @@ export function contributionForDistance(distance: number | null, filter: Prefere
   return Math.round(clamped * 100);
 }
 
-export function scorePoint(point: LatLon, filters: PreferenceFilter[], amenities: Amenity[]): { score: number; evidence: ScoredCell['evidence'] } {
+export function scorePointWithIndex(point: LatLon, filters: PreferenceFilter[], amenityIndex: AmenityIndex): { score: number; evidence: ScoredCell['evidence'] } {
   const active = filters.filter((filter) => filter.enabled && filter.weight > 0);
   let weighted = 0;
   let totalWeight = 0;
   const evidence: ScoredCell['evidence'] = {};
 
   for (const filter of active) {
-    const categoryAmenities = amenities.filter((amenity) => amenity.categoryId === filter.categoryId);
+    const categoryAmenities = amenityIndex.get(filter.categoryId) ?? [];
     const nearest = categoryAmenities.length > 0 ? nearestAmenity(point, categoryAmenities) : { distance: Number.POSITIVE_INFINITY };
     const nearestDistance = Number.isFinite(nearest.distance) ? nearest.distance : null;
     const contribution = contributionForDistance(nearestDistance, filter);
@@ -56,6 +87,10 @@ export function scorePoint(point: LatLon, filters: PreferenceFilter[], amenities
   }
 
   return { score: totalWeight === 0 ? 0 : Math.round(weighted / totalWeight), evidence };
+}
+
+export function scorePoint(point: LatLon, filters: PreferenceFilter[], amenities: Amenity[]): { score: number; evidence: ScoredCell['evidence'] } {
+  return scorePointWithIndex(point, filters, buildAmenityIndex(amenities));
 }
 
 export function makeGrid(bounds: Bounds, steps = 28): Array<{ id: string; center: LatLon; bounds: Bounds }> {
@@ -81,9 +116,10 @@ export function makeGrid(bounds: Bounds, steps = 28): Array<{ id: string; center
 }
 
 export function scoreGrid(bounds: Bounds, filters: PreferenceFilter[], amenities: Amenity[], steps = 28): ScoredCell[] {
+  const amenityIndex = buildAmenityIndex(amenities);
   return makeGrid(bounds, steps)
     .map((cell) => {
-      const { score, evidence } = scorePoint(cell.center, filters, amenities);
+      const { score, evidence } = scorePointWithIndex(cell.center, filters, amenityIndex);
       return { ...cell, score, evidence };
     })
     .sort((a, b) => b.score - a.score);

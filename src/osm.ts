@@ -40,7 +40,7 @@ function queryForCategory(category: AmenityCategory, bounds: Bounds): string {
 export function buildOverpassQuery(categoryIds: string[], bounds: Bounds): string {
   const categories = AMENITY_CATEGORIES.filter((category) => categoryIds.includes(category.id));
   const bodies = categories.map((category) => queryForCategory(category, bounds)).join('\n');
-  return `[out:json][timeout:25];\n(\n${bodies}\n);\nout center tags;`;
+  return `[out:json][timeout:25];\n(\n${bodies}\n);\nout tags center bb;`;
 }
 
 type OverpassElement = {
@@ -49,6 +49,7 @@ type OverpassElement = {
   lat?: number;
   lon?: number;
   center?: { lat: number; lon: number };
+  bounds?: { minlat: number; minlon: number; maxlat: number; maxlon: number };
   tags?: Record<string, string>;
 };
 
@@ -90,12 +91,16 @@ export function parseOverpassAmenities(elements: OverpassElement[], selectedCate
       const id = `${category.id}-${element.type}-${element.id}`;
       if (seen.has(id)) continue;
       seen.add(id);
+      const bounds = element.bounds
+        ? { south: element.bounds.minlat, west: element.bounds.minlon, north: element.bounds.maxlat, east: element.bounds.maxlon }
+        : undefined;
       amenities.push({
         id,
         categoryId: category.id,
         name: element.tags.name || `${category.label} (${element.type} ${element.id})`,
         lat,
         lon,
+        bounds,
         tags: element.tags,
       });
     }
