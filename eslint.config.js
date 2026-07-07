@@ -1,0 +1,16 @@
+import js from '@eslint/js';
+import tseslint from 'typescript-eslint';
+
+export default tseslint.config(
+  { ignores: ['dist', 'coverage', 'validate-*.mjs'] },
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
+  {
+    files: ['**/*.{ts,tsx}'],
+    languageOptions: {
+      ecmaVersion: 2023,
+      sourceType: 'module',
+      parserOptions: { project: ['./tsconfig.app.json', './tsconfig.node.json'] },
+    },
+  },
+);
