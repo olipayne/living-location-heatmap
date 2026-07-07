@@ -13,10 +13,26 @@ export function bboxToOverpass(bounds: Bounds): string {
   return `${bounds.south},${bounds.west},${bounds.north},${bounds.east}`;
 }
 
+function splitAlternativeSelectors(query: string): string[] {
+  const selectors: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < query.length; index += 1) {
+    const char = query[index];
+    if (char === '[') depth += 1;
+    if (char === ']') depth = Math.max(0, depth - 1);
+    if (char === '|' && depth === 0) {
+      selectors.push(query.slice(start, index));
+      start = index + 1;
+    }
+  }
+  selectors.push(query.slice(start));
+  return selectors.filter(Boolean);
+}
+
 function queryForCategory(category: AmenityCategory, bounds: Bounds): string {
   const bbox = bboxToOverpass(bounds);
-  return category.query
-    .split('|')
+  return splitAlternativeSelectors(category.query)
     .flatMap((selector) => [`node${selector}(${bbox});`, `way${selector}(${bbox});`, `relation${selector}(${bbox});`])
     .join('\n');
 }
@@ -87,7 +103,7 @@ export function parseOverpassAmenities(elements: OverpassElement[], selectedCate
   return amenities;
 }
 
-async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 15_000): Promise<Response> {
+async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 45_000): Promise<Response> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
   init.signal?.addEventListener('abort', () => controller.abort(), { once: true });
@@ -100,7 +116,11 @@ async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs
 
 export async function fetchAmenities(bounds: Bounds, categoryIds: string[], signal?: AbortSignal): Promise<Amenity[]> {
   const query = buildOverpassQuery(categoryIds, bounds);
-  const endpoints = ['https://overpass.kumi.systems/api/interpreter', 'https://overpass-api.de/api/interpreter'];
+  const endpoints = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.openstreetmap.fr/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+  ];
   let lastError: Error | undefined;
 
   for (const endpoint of endpoints) {
@@ -115,7 +135,11 @@ export async function fetchAmenities(bounds: Bounds, categoryIds: string[], sign
         throw new Error(`${endpoint} returned ${response.status}`);
       }
       const data = (await response.json()) as { elements: OverpassElement[] };
-      return parseOverpassAmenities(data.elements, categoryIds);
+      const amenities = parseOverpassAmenities(data.elements, categoryIds);
+      if (amenities.length === 0 && data.elements.length > 0) {
+        throw new Error(`${endpoint} returned ${data.elements.length} elements but none matched selected categories`);
+      }
+      return amenities;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
     }

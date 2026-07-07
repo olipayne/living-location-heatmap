@@ -54,6 +54,13 @@ describe('osm parsing', () => {
     expect(query).toContain('(1,2,3,4)');
   });
 
+  it('does not split regex alternation pipes when building Overpass queries', () => {
+    const query = buildOverpassQuery(['transit'], { south: 1, west: 2, north: 3, east: 4 });
+    expect(query).toContain('node["public_transport"~"station|stop_position|platform"]');
+    expect(query).toContain('node["railway"~"station|tram_stop|subway_entrance"]');
+    expect(query).toContain('node["highway"="bus_stop"]');
+  });
+
   it('normalises Overpass nodes and way centres into amenities', () => {
     const parsed = parseOverpassAmenities([
       { id: 1, type: 'node', lat: 52, lon: 4, tags: { leisure: 'park', name: 'Tiny Park' } },
